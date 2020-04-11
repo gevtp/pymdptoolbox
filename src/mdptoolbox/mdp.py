@@ -624,6 +624,8 @@ class PolicyIteration(MDP):
         # Set up the MDP, but don't need to worry about epsilon values
         MDP.__init__(self, transitions, reward, discount, None, max_iter,
                      skip_check=skip_check)
+        self.iter_policy_diff = []
+        self.iter_time = []
         # Check if the user has supplied an initial policy. If not make one.
         if policy0 is None:
             # Initialise the policy to the one which maximises the expected
@@ -817,9 +819,11 @@ class PolicyIteration(MDP):
             # calculate in how many places does the old policy disagree with
             # the new policy
             n_different = (policy_next != self.policy).sum()
+            self.iter_policy_diff.append(n_different)
             # if verbose then continue printing a table
             if self.verbose:
                 _printVerbosity(self.iter, n_different)
+            self.iter_time.append(_time.time() - self.time)
             # Once the policy is unchanging of the maximum number of
             # of iterations has been reached then stop
             if n_different == 0:
@@ -832,7 +836,6 @@ class PolicyIteration(MDP):
                 break
             else:
                 self.policy = policy_next
-
         self._endRun()
 
 
@@ -1022,13 +1025,18 @@ class QLearning(MDP):
 
     """
 
-    def __init__(self, transitions, reward, discount, n_iter=10000,
-                 skip_check=False):
+    def __init__(self, transitions, reward, discount, n_iter=10000, epsilon=0.01, learning_rate = 0.2, skip_check=False):
         # Initialise a Q-learning MDP.
 
         # The following check won't be done in MDP()'s initialisation, so let's
         # do it here
         self.max_iter = int(n_iter)
+        self.iter_time = []
+        self.dQ = []
+        self.V = 0
+        self.V_diff = []
+        self.deltas = []
+        self.policies = []
         assert self.max_iter >= 10000, "'n_iter' should be greater than 10000."
 
         if not skip_check:
@@ -1043,7 +1051,8 @@ class QLearning(MDP):
         self.R = reward
 
         self.discount = discount
-
+        self.epsilon = epsilon
+        self.learning_rate = learning_rate
         # Initialisations
         self.Q = _np.zeros((self.S, self.A))
         self.mean_discrepancy = []
@@ -1091,7 +1100,8 @@ class QLearning(MDP):
             # Updating the value of Q
             # Decaying update coefficient (1/sqrt(n+2)) can be changed
             delta = r + self.discount * self.Q[s_new, :].max() - self.Q[s, a]
-            dQ = (1 / _math.sqrt(n + 2)) * delta
+            # dQ = (1 / _math.sqrt(n + 2)) * delta
+            dQ = self.learning_rate * delta
             self.Q[s, a] = self.Q[s, a] + dQ
 
             # current state is updated
@@ -1101,14 +1111,23 @@ class QLearning(MDP):
             discrepancy.append(_np.absolute(dQ))
 
             # Computing means all over maximal Q variations values
-            if len(discrepancy) == 100:
-                self.mean_discrepancy.append(_np.mean(discrepancy))
+            if len(discrepancy) == int(self.max_iter*0.1):
+                disrepancy_mean = _np.mean(discrepancy)
+                if(len(self.mean_discrepancy)>0):
+                    if(_np.absolute((disrepancy_mean-self.mean_discrepancy[-1])/self.mean_discrepancy[-1])<self.epsilon):
+                        self.mean_discrepancy.append(disrepancy_mean)
+                        print(_MSG_STOP_EPSILON_OPTIMAL_VALUE)
+                        break;
+                self.mean_discrepancy.append(disrepancy_mean)
                 discrepancy = []
-
+            self.iter_time.append(_time.time() - self.time)
             # compute the value function and the policy
+            # self.V_diff.append(self.Q.max(axis=1)-self.V)
+            self.deltas.append(delta)
             self.V = self.Q.max(axis=1)
             self.policy = self.Q.argmax(axis=1)
-
+            self.policies.append(self.policy)
+            # self.dQ.append(dQ)
         self._endRun()
 
 
@@ -1353,7 +1372,8 @@ class ValueIteration(MDP):
 
         MDP.__init__(self, transitions, reward, discount, epsilon, max_iter,
                      skip_check=skip_check)
-
+        self.iter_variation = []
+        self.iter_time = []
         # initialization of optional arguments
         if initial_value == 0:
             self.V = _np.zeros(self.S)
@@ -1434,10 +1454,10 @@ class ValueIteration(MDP):
             # "axis" means the axis along which to operate. In this case it
             # finds the maximum of the the rows. (Operates along the columns?)
             variation = _util.getSpan(self.V - Vprev)
-
+            self.iter_variation.append(variation)
             if self.verbose:
                 _printVerbosity(self.iter, variation)
-
+            self.iter_time.append(_time.time() - self.time)
             if variation < self.thresh:
                 if self.verbose:
                     print(_MSG_STOP_EPSILON_OPTIMAL_POLICY)
@@ -1446,7 +1466,6 @@ class ValueIteration(MDP):
                 if self.verbose:
                     print(_MSG_STOP_MAX_ITER)
                 break
-
         self._endRun()
 
 
